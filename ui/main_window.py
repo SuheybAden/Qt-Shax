@@ -1,5 +1,5 @@
-from PyQt5 import QtWidgets, uic, QtGui
-from ..backend import board_manager
+from PyQt5 import QtWidgets, uic, QtGui, QtCore
+from backend import board_manager
 import os
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -11,6 +11,7 @@ class MainWindow(QtWidgets.QMainWindow):
 		cwd = os.getcwd()
 		filename = os.path.splitext(os.path.basename(__file__))[0]
 		uic.loadUi(cwd + "/ui_files/" + filename + ".ui", self)
+		self.initGraphics()
 		self.connect_all()
 
 	def initGraphics(self):
