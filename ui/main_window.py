@@ -1,5 +1,6 @@
-from PyQt5 import QtWidgets, uic, QtGui, QtCore
-from backend import board_manager
+from PyQt5 import QtWidgets, uic, QtGui
+from PyQt5.QtCore import QEvent, Qt
+from backend.board_manager import BoardManager
 import os
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -14,16 +15,32 @@ class MainWindow(QtWidgets.QMainWindow):
 		self.initGraphics()
 		self.connect_all()
 
+	# Connects all the signals and slots
+	def connect_all(self):
+		self.gameBtn.clicked.connect(self.gameBtn_Clicked)
+		
 	def initGraphics(self):
-		# Initialize the state of the board
-		board_manager.initBoard()
+		# # Initialize the state of the board
+		# board_manager.initBoard()
+		self.board_manager = BoardManager()
 
 		# Generate a new QGraphicsScene of the board
-		scene = board_manager.drawBoard()
+		scene = self.board_manager.drawBoard()
 
 		# Show the scene in the graphics view
 		self.graphicsView.setScene(scene)
+		self.graphicsView.installEventFilter(self)
 
-	# Connects all the signals and slots
-	def connect_all(self):
-		pass
+	def eventFilter(self, obj: 'QObject', event: 'QEvent') -> bool:
+		if event.type() == QEvent.MouseButtonPress:
+			pos = self.graphicsView.mapToScene(event.pos())
+			self.board_manager.placePiece(pos.x(), pos.y())
+			return True
+			
+		return super().eventFilter(obj, event)
+
+
+
+	def gameBtn_Clicked(self):
+		print("Game button has been clicked")
+		self.board_manager.startGame()

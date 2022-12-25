@@ -1,23 +1,22 @@
 import typing
-from PyQt5.QtWidgets import QGraphicsItem
+from PyQt5.QtWidgets import QGraphicsItem, QGraphicsEllipseItem
 from PyQt5.QtCore import QRectF
 from PyQt5.QtGui import QPen, QColor, QBrush
 from backend import board_manager
 
 class GamePiece(QGraphicsItem):
-    def __init__(self, x, y, radius) -> None:
+    def __init__(self, x, y, radius, color) -> None:
         super().__init__()
         self.x = x
         self.y = y
         self.radius = radius
-        self.updateRect()
-        self.setFlag(QGraphicsItem.ItemIsMovable)
-        self.setFlag(QGraphicsItem.ItemSendsGeometryChanges)
+        self.color = color
+        self.updateShape()
 
         self.item_pos = None
 
-    
-    def updateRect(self):
+    # Updates the bounding rect of the game piece
+    def updateShape(self):
         self.rect = QRectF(self.x - self.radius, self.y - self.radius / 2,
                             self.radius * 2, self.radius)
 
@@ -26,11 +25,16 @@ class GamePiece(QGraphicsItem):
 
     def paint(self, painter, option, widget):
         # TODO: find out how to use custom pen and brush with drawEllipse()
-        pen = QPen(QColor(0, 0, 0), 2)
-        brush = QBrush(QColor(100, 86, 30))
+        painter.setPen(QPen(QColor(0, 0, 0), 2))
+        painter.setBrush(QBrush(self.color))
 
         painter.drawEllipse(self.rect)
 
+    def activate(self):
+        self.setFlag(QGraphicsItem.ItemIsMovable)
+        self.setFlag(QGraphicsItem.ItemSendsGeometryChanges)
+
+    # Updates the item position if the game piece is being moved around
     def itemChange(self, change: 'QGraphicsItem.GraphicsItemChange', value: typing.Any) -> typing.Any:
         if (change == QGraphicsItem.ItemPositionChange):
 
@@ -39,29 +43,13 @@ class GamePiece(QGraphicsItem):
 
         return super().itemChange(change, value)
 
-    
-
-    # def mousePressEvent(self, event: 'QGraphicsSceneMouseEvent') -> None:
-    #     print("Game piece pressed")
-    #     self.moving = True
-    #     # return super().mousePressEvent(event)
-
-    # def mouseMoveEvent(self, event: 'QGraphicsSceneMouseEvent') -> None:
-    #     print("Game piece moved")
-        
-    #     if self.moving:
-
-    #         self.x = event.scenePos().x()
-    #         self.y = event.scenePos().y()
-    #         self.updateRect()
-    #         self.update()
-
-    #     return super().mouseMoveEvent(event)
-
+    # Places the game piece in the nearest corner/intersection on the game board
+    # Otherwise, it will move the game piece back to its original position
     def mouseReleaseEvent(self, event: 'QGraphicsSceneMouseEvent') -> None:
         print("Game piece released")
-        self.stoppedMoving = True
-
+ 
+        # Handles edge case where the mouse was released before the game piece was moved
+        # aka the game piece was just quickly clicked
         if self.item_pos == None:
             print("Item position is null")
             return
@@ -70,6 +58,7 @@ class GamePiece(QGraphicsItem):
                                  self.item_pos.x(), self.item_pos.y())
         
         if newPos != None:
+            print("Found a valid position")
             self.x = newPos[0]
             self.y = newPos[1]
 
