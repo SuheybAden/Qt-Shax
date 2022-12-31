@@ -360,7 +360,6 @@ class BoardManager():
 
 	# Changes the game to the next board stage and perfroms any necessary transition actions
 	def changeStage(self, nextStage):
-
 		# Empty print to create buffer space from other print messages
 		print()
 		# Perform a state transition
@@ -401,7 +400,6 @@ class BoardManager():
 					if piece != None:
 						piece.activate()
 
-
 	# Translates the scene's x and y coordinates to the nearest board index
 	def sceneToBoard(self, x, y):
 		board_x = round(x / self.GRID_SPACING)
@@ -415,3 +413,14 @@ class BoardManager():
 		scene_y = y * self.GRID_SPACING
 
 		return (scene_x, scene_y)
+
+	def getPossibleMoves(self, piece_x, piece_y):
+		# Stores all the possible moves of the piece
+		# 0 means a piece can't move to that index
+		# 1 means a piece can move to that index
+		possibleMoves = np.zeros(self.board_state.shape)
+		return possibleMoves
+
+
+	def foundNewJare(self):
+		return False
