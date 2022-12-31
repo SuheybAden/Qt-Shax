@@ -11,3 +11,6 @@ def getPossibleMoves(piece_x, piece_y, board_state:np.ndarray):
     # 1 means a piece can move to that index
     possibleMoves = np.zeros(board_state.shape)
     return possibleMoves
+
+def findJare(board_state):
+    return False

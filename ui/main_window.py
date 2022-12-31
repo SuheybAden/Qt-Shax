@@ -43,4 +43,5 @@ class MainWindow(QtWidgets.QMainWindow):
 
 	def gameBtn_Clicked(self):
 		print("Game button has been clicked")
-		self.board_manager.startGame()
+		if(self.board_manager.startGame()):
+			self.gameBtn.setText("Forfeit")
