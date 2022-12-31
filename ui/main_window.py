@@ -1,6 +1,6 @@
 from PyQt5 import QtWidgets, uic, QtGui
 from PyQt5.QtCore import QEvent, Qt
-from backend.board_manager import BoardManager
+from backend.board_manager import BoardManager, GameStage
 import os
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -34,7 +34,10 @@ class MainWindow(QtWidgets.QMainWindow):
 	def eventFilter(self, obj: 'QObject', event: 'QEvent') -> bool:
 		if event.type() == QEvent.MouseButtonPress:
 			pos = self.graphicsView.mapToScene(event.pos())
-			self.board_manager.placePiece(pos.x(), pos.y())
+			if self.board_manager.gameState == GameStage.PLACEMENT:
+				self.board_manager.placePiece(pos.x(), pos.y())
+			elif self.board_manager.gameState == GameStage.REMOVAL:
+				self.board_manager.removePiece(pos.x(), pos.y())
 			return True
 			
 		return super().eventFilter(obj, event)
@@ -42,6 +45,5 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
 	def gameBtn_Clicked(self):
-		print("Game button has been clicked")
 		if(self.board_manager.startGame()):
 			self.gameBtn.setText("Forfeit")

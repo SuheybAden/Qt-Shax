@@ -23,7 +23,7 @@ class BoardManager():
 		self.TOTAL_PLAYERS = 2
 
 		# Maximum number of pieces each player can have
-		self.MAX_PIECES = 1
+		self.MAX_PIECES = 2
 
 		# Radius of drawn circles
 		self.RADIUS = 15
@@ -218,8 +218,9 @@ class BoardManager():
 			
 			board_x, board_y = self.sceneToBoard(x, y)
 
-			print("Placing piece at:")
-			print(validSpot[0], validSpot[1])
+			# print("Placing piece at:")
+			# print(validSpot[0], validSpot[1])
+
 			self.gamePieces[self.current_turn][self.total_pieces] = \
 					GamePiece(self, validSpot[0], validSpot[1], self.RADIUS, self.playerColors[self.current_turn])
 			
@@ -242,25 +243,47 @@ class BoardManager():
 			# go on to the second stage of the game
 			if self.total_pieces >= self.MAX_PIECES:
 				self.changeStage(GameStage.REMOVAL)
-				print("Going to the movement stage")
 
 	# Removes game piece from scene and list of pieces
 	def removePiece(self, x, y):
 		if (self.gameState == GameStage.REMOVAL):
-			validSpot = self.isValidSpot(x, y)
-			if validSpot == None:
-				print("Please press on a valid spot")
+			board_x, board_y = self.sceneToBoard(x, y)
+			scene_x, scene_y = self.boardToScene(board_x, board_y)
 
-			for playerPieces in self.gamePieces:
-				for piece in playerPieces:
-					# If there is a piece where the player clicked
-					if piece.x == validSpot[0] and piece.y == validSpot[1]:
-						# Remove from board scene
-						self.scene.removeItem(piece)
-						# Remove from pieces array
-						self.gamePieces = self.gamePieces[self.gamePieces == piece]
-						# Delete game piece
-						del piece
+			player = self.boardState[board_y][board_x]
+
+			# Checks if the spot clicked contains another player's piece
+			if player == None or player == 0 or player == self.current_turn + 1:
+				print("Please click on another player's piece")
+				return
+			player -= 1
+
+			pieceRemoved = False
+			for piece in self.gamePieces[player]:
+				# If there is a piece where the player clicked
+				if piece != None and piece.x == scene_x and piece.y == scene_y:
+					# Empty from pieces array
+					self.gamePieces[self.gamePieces == piece] = None
+					
+					# Remove from board scene
+					self.scene.removeItem(piece)
+
+					# Update the board state
+					self.boardState[board_y][board_x] = 0
+
+					# Delete game piece
+					del piece
+
+					pieceRemoved = True
+					break
+
+			if pieceRemoved:
+				print("Successfully removed a piece")
+				self.current_turn += 1
+
+				if self.current_turn >= self.TOTAL_PLAYERS:
+					self.current_turn %= self.TOTAL_PLAYERS
+					self.changeStage(GameStage.MOVEMENT)
 
 
 	# Takes in a game piece's x and y then returns the closest valid position for it to move to
@@ -268,32 +291,46 @@ class BoardManager():
 	# Returns new x and y values if the position is valid
 	# Snaps to grid
 	def movePiece(self, old_x, old_y, new_x, new_y):
-		# Check if the new coordinates are at a valid spot on the board
-		validSpot = self.isValidSpot(new_x, new_y)
+		if (self.gameState == GameStage.MOVEMENT):
+			# Check if the new coordinates are at a valid spot on the board
+			validSpot = self.isValidSpot(new_x, new_y)
 
-		# Convert from scene to board coordinates
-		old_board_x, old_board_y = self.sceneToBoard(old_x, old_y)
-		new_board_x, new_board_y = self.sceneToBoard(validSpot[0], validSpot[1])
+			if validSpot == None:
+				print("Please move the piece to an empty spot")
+				return
 
-		# Check if the new spot is adjacent to the old spot
-		isAdjacent = (new_board_x, new_board_y) in self.adjacentPieces[(old_board_x, old_board_y)]
+			# Convert from scene to board coordinates
+			old_board_x, old_board_y = self.sceneToBoard(old_x, old_y)
+			new_board_x, new_board_y = self.sceneToBoard(validSpot[0], validSpot[1])
 
-		if (validSpot != None and isAdjacent):
-			# Update the board's state
-			self.boardState[old_board_y][old_board_x] = 0
-			self.boardState[new_board_y][new_board_x] = self.current_turn
-			
-			# Go on to the next player
-			self.current_turn = (self.current_turn + 1) % self.TOTAL_PLAYERS
-			self.activatePlayer(self.current_turn)
-			
-			return validSpot
+			# Check if the new spot is adjacent to the old spot
+			isAdjacent = (new_board_x, new_board_y) in self.adjacentPieces[(old_board_x, old_board_y)]
 
-		else:
-			print("Not a valid position")
-			return None
+			if (isAdjacent):
+				# Update the board's state
+				self.boardState[old_board_y][old_board_x] = 0
+				self.boardState[new_board_y][new_board_x] = self.current_turn + 1
+				
+				# Go on to the next player
+				self.current_turn += 1
 
+				# Deactivates movement for all the game pieces
+				self.deactivateAll()
 
+				# Activates the pieces of the next player if there is one
+				if self.current_turn < self.TOTAL_PLAYERS:
+					self.activatePlayer(self.current_turn)
+
+				# Goes to the removal stage if every player had their turn
+				else:
+					self.current_turn %= self.TOTAL_PLAYERS
+					self.changeStage(GameStage.REMOVAL)
+				
+				return validSpot
+
+			else:
+				print("Please move the piece to an adjacent spot")
+				return None
 
 	# Checks if the scene coordinates are on a corner/intersection or not
 	def isValidSpot(self, scene_x, scene_y):
@@ -321,17 +358,38 @@ class BoardManager():
 		else:
 			return self.boardToScene(target_x, target_y)
 
-	# TODO: finish implementing
+	# Changes the game to the next board stage and perfroms any necessary transition actions
 	def changeStage(self, nextStage):
+
+		# Empty print to create buffer space from other print messages
+		print()
 		# Perform a state transition
 		if(nextStage == GameStage.PLACEMENT):
-			pass
+			print("Going to the placement stage")
+
+		elif(nextStage == GameStage.REMOVAL):
+			print("Going to the removal stage")
+
 		elif(nextStage == GameStage.MOVEMENT):
-			self.current_turn = 0
+			print("Going to the movement stage")
+			# self.current_turn = 0
+
+			# Activates player 1's game pieces
+			self.deactivateAll()
 			self.activatePlayer(self.current_turn)
 		
+		# Another empty print for more buffer space
+		print()
+
 		# Update the game state
 		self.gameState = nextStage
+
+	# Deactivates movement for all the player pieces
+	def deactivateAll(self):
+		for i in range(self.TOTAL_PLAYERS):
+			for piece in self.gamePieces[i]:
+				if piece != None:
+					piece.deactivate()
 
 	# Activates the game pieces of the current player
 	# while deactivating the pieces of all the other players
@@ -340,12 +398,8 @@ class BoardManager():
 			# Activates the current player's pieces
 			if i == player:
 				for piece in self.gamePieces[player]:
-					piece.activate()
-
-			# Deactivates the other player's pieces
-			else:
-				for piece in self.gamePieces[i]:
-					piece.deactivate()
+					if piece != None:
+						piece.activate()
 
 
 	# Translates the scene's x and y coordinates to the nearest board index

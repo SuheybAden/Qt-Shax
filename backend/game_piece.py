@@ -49,6 +49,10 @@ class GamePiece(QGraphicsItem):
 
         return super().itemChange(change, value)
 
+    def mousePressEvent(self, event: 'QGraphicsSceneMouseEvent') -> None:
+        
+        return super().mousePressEvent(event)
+
     # Places the game piece in the nearest corner/intersection on the game board
     # Otherwise, it will move the game piece back to its original position
     def mouseReleaseEvent(self, event: 'QGraphicsSceneMouseEvent') -> None:
