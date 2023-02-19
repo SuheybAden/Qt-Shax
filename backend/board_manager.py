@@ -1,25 +1,26 @@
 from enum import Enum
 import numpy as np
 
-from PyQt5.QtWidgets import QGraphicsScene, QGraphicsEllipseItem
-from PyQt5.QtGui import QPen, QColor, QBrush
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QVariant
 from PyQt5 import Qt
-
-from .game_piece import GamePiece
 
 # Enum for tracking what stage the game is in
 # TODO: Come up with a better name for the 'MOVEMENT' game stage
 class GameStage(Enum):
 	STOPPED = 0
 	PLACEMENT = 1
-	REMOVAL = 2
-	MOVEMENT = 3
+	FIRST_REMOVAL = 2
+	REMOVAL = 3
+	MOVEMENT = 4
 
 class BoardManager(QObject):
 	# *************** SIGNALS
-	newText = pyqtSignal(str)
+	gameStarted = pyqtSignal(QVariant)
 	gameEnded = pyqtSignal()
+
+	placePieceEvaluated = pyqtSignal(bool, int, float, float, str, int)
+	removePieceEvaluated = pyqtSignal(bool, int, str, int, list)
+	movePieceEvaluated = pyqtSignal(bool, int, float, float, str, int, list)
 
 	# Constructor function
 	def __init__(self) -> None:
@@ -32,68 +33,40 @@ class BoardManager(QObject):
 		# Maximum number of pieces each player can have
 		self.MAX_PIECES = 5
 
-		# Radius of drawn circles
-		self.RADIUS = 15
-
-		# Width of the pen used to draw the board
-		self.PEN_WIDTH = 5
-
-		# Common colors used for drawing the board
-		self.COLOR_BLACK = QColor(0, 0, 0)
-		self.COLOR_RED = QColor(100, 0, 0)
-		self.COLOR_BLUE = QColor(0, 0, 100)
-
-		# Space between each space on the board grid
-		self.GRID_SPACING = 70
+		# Minimum number of pieces a player can have or its game over
+		self.MIN_PIECES = 2
 
 		# How far of a piece can be from the center of its new location
 		# Goes from 0 to 1
 		self.MARGIN_OF_ERROR = .2
+
+		# How far the pieces' ID needs to bit shifted to the left to store the player ID with it
+		self.ID_SHIFT = 2
 
 
 		# ***************** GAME VARIABLES **************************
 		# Tracks if a game is currently running or not
 		self.gameRunning = False
 
+		# Tracks what stage the game is currently in
+		self.gameState = GameStage.STOPPED
+
 		# Represents whose turn it is
 		# 0 indexed so for example, a value of 0 means it's player 1's turn
 		self.current_turn = 0
 
-		# The total number of pieces that each player has
-		self.total_pieces = 0
+		# Array for keeping track of how many pieces each player has
+		self.total_pieces = np.zeros(self.TOTAL_PLAYERS, np.int8)
 
+		# Tracks the ID of the player who first made a jare in the placement stage
+		# Determines which player goes first in the "first_removal" stage
 		self.firstToJare = None
-
-		self.firstRemoval = True
-
-		# Array for keeping track of every players' game pieces
-		self.gamePieces = np.empty(self.TOTAL_PLAYERS, GamePiece)
-		for i in range(self.TOTAL_PLAYERS):
-			self.gamePieces[i] = []
-
-		# Array for keeping track of each players' remaining pieces
-		self.remainingPieces = np.ones(self.TOTAL_PLAYERS, int) * self.MAX_PIECES
-
-		# Array for tracking how many active pieces each player has
-		self.activePieces = np.zeros(self.TOTAL_PLAYERS, np.int8)
 
 		# Array containing the total number of "jare" each player has made
 		self.currentJare = np.zeros(self.TOTAL_PLAYERS, np.int8)
 
-		# List of all the pieces currently in a "jare"
-		self.piecesInJare = []
-
-		# Array containing the color of each player's pieces
-		self.playerColors = np.empty(self.TOTAL_PLAYERS, QColor)
-
-		# *** TESTING ONLY
-		# Set the color of player 1's pieces to red
-		self.playerColors[0] = self.COLOR_RED
-		# Set the color of player 2's pieces to blue
-		self.playerColors[1] = self.COLOR_BLUE
 
 		# ******************** BOARD VARIABLES *********************
-
 		# Size of the board
 		self.boardSize = 7
 
@@ -140,293 +113,252 @@ class BoardManager(QObject):
 								(4, 2): [(4, 3), (3, 2)],
 								(3, 2): [(4, 2), (3, 1), (2, 2)],
 								}
-		
-		self.gameState = GameStage.STOPPED
 
 
 	# Sets the board to all its initial values and starts the game
+	@pyqtSlot()
 	def startGame(self):
-		# Represents whose turn it is
-		# 0 indexed so for example, a value of 0 means it's player 1's turn
+		# Sets all the game variables to their initial states
+
+		# Player variables
 		self.current_turn = 0
 
-		# The total number of pieces that each player has
-		self.total_pieces = 0
+		# Pieces variables
+		self.total_pieces = np.zeros(self.TOTAL_PLAYERS, np.int8)
 
-		# Records which player was the first to make a jare in the placement stage
+		# Jare variables
 		self.firstToJare = None
+		self.currentJare = np.zeros(self.TOTAL_PLAYERS, np.int8)
 
-		# Changes the game to the placement stage
+		# Starts the game off in the placement stage
 		self.gameState = GameStage.PLACEMENT
 
+		# Starts running the game
 		self.gameRunning = True
 
 		return self.gameRunning
 
 	# Ends the game
+	@pyqtSlot()
 	def endGame(self):
+		# Debugging print
 		print("Game over")
 
+		self.gameState = GameStage.STOPPED
 		self.gameRunning = False
 		self.gameEnded.emit()
 
 
-	# Generates a new QGraphicsScene based on the current state of the board
-	def drawBoard(self):
-		# Create a new empty scene
-		scene = QGraphicsScene()
-
-		# Create pen and brush for drawing board
-		pen = QPen(self.COLOR_BLACK, self.PEN_WIDTH)
-		brush = QBrush(QColor(100, 86, 30))
-
-		# Add all the lines connecting the corners/intersections
-		for rootPiece, connectedPieces in self.adjacentPieces.items():
-			x1 = rootPiece[0]
-			y1 = rootPiece[1]
-
-			for piece in connectedPieces:
-				x2 = piece[0]
-				y2 = piece[1]
-
-				scene.addLine(x1 * self.GRID_SPACING, y1 * self.GRID_SPACING, 
-								x2 * self.GRID_SPACING, y2 * self.GRID_SPACING, pen)
-
-		# Get the indices of all the corners and intersections
-		indices = np.where(self.boardState != None)
-
-		# Change color for outline of corners/intersections
-		pen.setColor(QColor(150, 126, 45))
-
-		# Add all the corners/intersections to the scene
-		for i in range(len(indices[0])):
-			x = indices[0][i] * self.GRID_SPACING
-			y = indices[1][i] * self.GRID_SPACING
-			scene.addEllipse(x - self.RADIUS, y - self.RADIUS,
-								self.RADIUS * 2, self.RADIUS * 2, 
-								pen, brush)
-
-		# # TESTING ONLY
-		# self.gamePieces[0][0] = GamePiece(self, self.GRID_SPACING, self.GRID_SPACING, self.RADIUS, self.COLOR_RED)
-		# self.gamePieces[0][0].activate()
-		# scene.addItem(self.gamePieces[0][0])
-
-		self.scene = scene
-
-		# Return the finished scene
-		return scene
-
 	# Places a new game piece on the board at the scene coordinates (x, y)
+	@pyqtSlot(float, float)
 	def placePiece(self, x, y):
 		if self.gameState == GameStage.PLACEMENT:
-			validSpot = self.isValidSpot(x, y)
+			validSpot = self._isValidSpot(x, y)
 
 			if validSpot == None:
-				print("Please press on a valid spot")
+				# print("Please press on a valid spot")
 				return
 
-			print("Player " + str(self.current_turn + 1) + "'s turn. Piece " + str(self.total_pieces + 1))
-			
-			board_x, board_y = self.sceneToBoard(x, y)
+			# print("Player " + str(self.current_turn + 1) + "'s turn. \
+					# Placing piece #" + str(self.total_pieces[self.current_turn] + 1))
 
-			# print("Placing piece at:")
-			# print(validSpot[0], validSpot[1])
-
-			self.gamePieces[self.current_turn].append(GamePiece(self, validSpot[0], validSpot[1], self.RADIUS, self.playerColors[self.current_turn]))
-			
-			# Adds the new game piece to the scene
-			self.scene.addItem(self.gamePieces[self.current_turn][self.total_pieces])
+			# Generate an ID for the new game piece
+			newID = (self.total_pieces[self.current_turn] << self.ID_SHIFT) | self.current_turn
 
 			# Update the board's state
-			self.boardState[board_y][board_x] = self.current_turn
+			self.boardState[y][x] = newID
+			
+			# Updating the player's total number of peices
+			self.total_pieces[self.current_turn] += 1
 
 			# Check if they are the first player to make a jare
-			if self.madeNewJare() and self.firstToJare == None:
+			if self._madeNewJare() and self.firstToJare == None:
 				self.firstToJare = self.current_turn
 				print("The first to a jare is player " + str(self.firstToJare + 1))
 
 			# Go to the next player's turn
-			self.current_turn += 1
+			self.current_turn = (self.current_turn + 1) % self.TOTAL_PLAYERS
 
-			# If all player's put down a piece, 
-			# restart the order and have them place another piece
-			if self.current_turn >= self.TOTAL_PLAYERS:
-				self.current_turn %= self.TOTAL_PLAYERS
-				self.total_pieces += 1
-
+			nextStage = "placement"
 			# If all the pieces have been placed,
 			# go on to the second stage of the game
-			if self.total_pieces >= self.MAX_PIECES:
-				self.changeStage(GameStage.REMOVAL)
+			if np.all(self.total_pieces >= self.MAX_PIECES):
+				self._changeStage(GameStage.FIRST_REMOVAL)
+				nextStage = "removal"
+
+			
+			self.placePieceEvaluated.emit(True, newID, x, y, nextStage, self.current_turn)
 
 	# Removes game piece from scene and list of pieces
-	def removePiece(self, x, y):
-		if (self.gameState == GameStage.REMOVAL):
-			board_x, board_y = self.sceneToBoard(x, y)
-			scene_x, scene_y = self.boardToScene(board_x, board_y)
+	@pyqtSlot(int)
+	def removePiece(self, pieceID):
+		if (self.gameState == GameStage.REMOVAL or self.gameState == GameStage.FIRST_REMOVAL):
+			player = pieceID & (2**self.ID_SHIFT - 1)
 
-			player = self.boardState[board_y][board_x]
-
-			# Checks if the spot clicked contains another player's piece
-			if player == None or player == -1 or player == self.current_turn:
-				print("Please click on another player's piece")
+			# Checks if the piece exists on the board
+			if pieceID not in self.boardState:
+				# print("This piece doesn't exist")
 				return
 
-			pieceRemoved = False
-			for piece in self.gamePieces[player]:
-				# If there is a piece where the player clicked
-				if piece != None and piece.x == scene_x and piece.y == scene_y:
-					# Empty from pieces array
-					self.gamePieces[player].remove(piece)
-					
-					# Remove from board scene
-					self.scene.removeItem(piece)
+			# Checks if the spot clicked contains another player's piece
+			if player == self.current_turn:
+				# print("Please click on another player's piece")
+				return
 
-					# Update the board state
-					self.boardState[board_y][board_x] = -1
+			# Remove the piece from the board
+			self.boardState[self.boardState == pieceID] = -1
 
-					# Delete game piece
-					del piece
+			# Update the remaining pieces of the other player
+			self.total_pieces[player] -= 1
 
-					# Update the remaining pieces of the other player
-					self.remainingPieces[player] -= 1
+			# End the game if one of the players won
+			if(self._isGameOver()):
+				self.removePieceEvaluated.emit(True, pieceID, "removal", self.current_turn, [])
+				self.endGame()
+				return
 
-					# End the game if one of the players won
-					if(self.isGameOver()):
-						self.endGame()
-						return
+			# print("Removed piece from board manager")
+			activePieces = []
+			nextStage = "removal"
+			# If this is the very first removal stage,
+			# every player must have a chance to remove a piece before going on to the movement stage
+			
+			if self.gameState == GameStage.FIRST_REMOVAL:
+				self.current_turn = (self.current_turn + 1) % self.TOTAL_PLAYERS
 
-					pieceRemoved = True
-					break
+				if (self.firstToJare == None and self.current_turn == 1) or \
+					(self.current_turn == self.firstToJare):
+					# TODO: find out which player starts after the first removal stage
+					self._changeStage(GameStage.MOVEMENT)
+					nextStage = "movement"
+					activePieces = self._getActivePieces()
 
-			if pieceRemoved:
-				print("Successfully removed a piece")
+			else:
+				self._changeStage(GameStage.MOVEMENT)
+				nextStage = "movement"
+				activePieces = self._getActivePieces()
 
-				if self.firstRemoval:
-					self.current_turn = (self.current_turn + 1) % self.TOTAL_PLAYERS
-
-					if self.current_turn == self.firstToJare:
-						# TODO: find out which player starts after the first removal stage
-						self.current_turn %= self.TOTAL_PLAYERS
-
-						self.changeStage(GameStage.MOVEMENT)
-
-				else:
-					self.changeStage(GameStage.MOVEMENT)
+			
+			self.removePieceEvaluated.emit(True, pieceID, nextStage, self.current_turn, activePieces)
 
 
-	# Takes in a game piece's x and y then returns the closest valid position for it to move to
+	# Takes in a game piece's x and y
 	# Returns None if there is no nearby valid position
 	# Returns new x and y values if the position is valid
 	# Snaps to grid
-	def movePiece(self, old_x, old_y, new_x, new_y):
-		if (self.gameState == GameStage.MOVEMENT):
-			# Check if the new coordinates are at a valid spot on the board
-			validSpot = self.isValidSpot(new_x, new_y)
+	@pyqtSlot(int, float, float)
+	def movePiece(self, ID, new_x, new_y):
+		if (self.gameState != GameStage.MOVEMENT):
+			# print("Need to be in the movement stage to move the piece")
+			return
 
-			if validSpot == None:
-				print("Please move the piece to an empty spot")
-				return
 
-			# Convert from scene to board coordinates
-			old_board_x, old_board_y = self.sceneToBoard(old_x, old_y)
-			new_board_x, new_board_y = self.sceneToBoard(validSpot[0], validSpot[1])
+		# Check if the new coordinates are at a valid spot on the board
+		validSpot = self._isValidSpot(new_x, new_y)
 
-			# Check if the new spot is adjacent to the old spot
-			isAdjacent = (new_board_x, new_board_y) in self.adjacentPieces[(old_board_x, old_board_y)]
+		if validSpot == None:
+			# print("Please move the piece to an empty spot")
+			self.movePieceEvaluated.emit(False, ID, 0, 0, "movement", self.current_turn, list())
+			return
 
-			if (isAdjacent):
-				# Update the board's state
-				self.boardState[old_board_y][old_board_x] = -1
-				self.boardState[new_board_y][new_board_x] = self.current_turn
-				
-				newJare = self.madeNewJare()
-				print("Player " + str(self.current_turn + 1) + " made a new jare: " + str(newJare))
-				
-				# Goes to the removal stage if a new jare has been made
-				if newJare:
-					self.current_turn %= self.TOTAL_PLAYERS
-					self.changeStage(GameStage.REMOVAL)
+		# Get the old coordinates of the game piece
+		old_board_x, old_board_y = self._pieceIDtoCoord(ID)
 
-				# Go on to the next player if no jare has been made
-				else:
-					self.current_turn = (self.current_turn + 1) % self.TOTAL_PLAYERS
+		# Check if the new spot is adjacent to the old spot
+		isAdjacent = validSpot in self.adjacentPieces[(old_board_x, old_board_y)]
 
-					# Deactivates movement for all the game pieces
-					self.deactivateAll()
+		if (isAdjacent):
+			# Update the board's state
+			self.boardState[old_board_y][old_board_x] = -1
+			self.boardState[validSpot[1]][validSpot[0]] = ID
+			
 
-					# Activates the pieces of the next player
-					self.activatePlayer(self.current_turn)
+			# newJare = False
+			newJare = self._madeNewJare()
+			# print("Player " + str(self.current_turn + 1) + " made a new jare: " + str(newJare))
+			
+			nextStage = ""
+			activePieces = []
+			# Gets the next game stage based on whether a new jare was made or not
+			if newJare:
+				self._changeStage(GameStage.REMOVAL)
+				nextStage = "removal"
 
-				return validSpot
-
+			# Go on to the next player if no jare has been made
 			else:
-				print("Please move the piece to an adjacent spot")
-				return None
+				self.current_turn = (self.current_turn + 1) % self.TOTAL_PLAYERS
+				nextStage = ""
+				# Checks if the next player has any pieces that can be moved
+				activePieces = self._getActivePieces()
 
-	@pyqtSlot(object)
-	def pieceMoved(self, piece: GamePiece):
-		old_x = piece.x
-		old_y = piece.y
-		new_x = piece.item_pos.x()
-		new_y = piece.item_pos.y()
+				if not activePieces:
+					print("Player " + str(self.current_turn + 1) + " can't move any pieces. " + 
+	   						"Going back to the previous player.")
+					self.current_turn = (self.current_turn - 1) % self.TOTAL_PLAYERS
+					
+			# Signal the UI
+			self.movePieceEvaluated.emit(True, ID, validSpot[0], validSpot[1], 
+						nextStage, self.current_turn, activePieces)
 
-		validMove = self.movePiece(old_x, old_y, new_x, new_y)
+		else:
+			# print("Please move the piece to an adjacent spot")
+			self.movePieceEvaluated.emit(False, ID, 0, 0, "movement", self.current_turn, list())
+			return None
 
+
+	# *************************** HELPER FUNCTIONS **************************************** #
+
+	def _pieceIDtoCoord(self, pieceID):
+		# print("The pieces ID is: " + str(pieceID))
+		index = np.where(self.boardState == pieceID)
+		return index[1][0], index[0][0]
 
 	# Checks if the scene coordinates are on a corner/intersection or not
-	def isValidSpot(self, scene_x, scene_y, isBoardCoord = False):
-		true_x = scene_x/ self.GRID_SPACING
-		true_y = scene_y / self.GRID_SPACING
+	def _isValidSpot(self, x, y):
+		target_x = round(x)
+		target_y = round(y)
 
-		target_x = round(true_x)
-		target_y = round(true_y)
-
-		x_error = abs(target_x - true_x)
-		y_error = abs(target_y - true_y)
+		x_error = abs(target_x - x)
+		y_error = abs(target_y - y)
 
 		# Check if spot is near a valid corner/intersection on the board
 		if (x_error > self.MARGIN_OF_ERROR and \
 			y_error > self.MARGIN_OF_ERROR):
-			print("Too far from corner/intersection")
+			# print("Too far from corner/intersection")
 			return None
 		elif (target_x < 0 or target_x >= self.boardSize or \
 			target_y < 0 or target_y >= self.boardSize):
-			print("Outside of the game board")
+			# print("Outside of the game board")
 			return None
 		elif(self.boardState[target_y][target_x] != -1):
 			# print("Not an empty spot")
 			return None
 		else:
-			return self.boardToScene(target_x, target_y)
+			return (target_x, target_y)
 
 	# Changes the game to the next board stage and perfroms any necessary transition actions
-	def changeStage(self, nextStage):
+	def _changeStage(self, nextStage):
 		# Empty print to create buffer space from other print messages
 		print()
 		# Perform a state transition
 		if(nextStage == GameStage.PLACEMENT):
 			print("Going to the placement stage")
 
+		elif(nextStage == GameStage.FIRST_REMOVAL):
+			print(self.boardState)
+			if self.firstToJare != None:
+				self.current_turn = self.firstToJare
+			else:
+				# If no one made a jare in the placement stage, player 2 goes first
+				self.current_turn = 1
+
+			print("Going to the first removal stage")
+
 		elif(nextStage == GameStage.REMOVAL):
-			if self.firstRemoval:
-				if self.firstToJare != None:
-					self.current_turn = self.firstToJare
-				else:
-					# If no one made a jare in the placement stage, player 2 goes first
-					self.current_turn = 1
-
 			print("Going to the removal stage")
-
-			self.deactivateAll()
 
 		elif(nextStage == GameStage.MOVEMENT):
 			print("Going to the movement stage")
-			# self.current_turn = 0
-
-			# Activates player 1's game pieces
-			self.deactivateAll()
-			self.activatePlayer(self.current_turn)
 		
 		# Another empty print for more buffer space
 		print()
@@ -434,76 +366,57 @@ class BoardManager(QObject):
 		# Update the game state
 		self.gameState = nextStage
 
-	# Deactivates movement for all the player pieces
-	def deactivateAll(self):
-		for i in range(self.TOTAL_PLAYERS):
-			for piece in self.gamePieces[i]:
-				piece.deactivate()
-
-	# Activates the game pieces of the current player
-	# while deactivating the pieces of all the other players
-	def activatePlayer(self, player):
-		isActive = False
-
-		for i in range(self.TOTAL_PLAYERS):
-			# Activates the current player's pieces
-			if i == player:
-				for piece in self.gamePieces[player]:
-					board_x, board_y = self.sceneToBoard(piece.x, piece.y)
-					if self.getPossibleMoves(board_x, board_y):
-						isActive = True
-						self.activePieces[player] += 1
-						piece.activate()
-
-		if not isActive:
-			print("Player " + str(player + 1) + " can't make any moves. \
-					Player " + str(player) + " needs to move a piece")
-
-	# Translates the scene's x and y coordinates to the nearest board index
-	def sceneToBoard(self, x, y):
-		board_x = round(x / self.GRID_SPACING)
-		board_y = round(y / self.GRID_SPACING)
-		
-		return (board_x, board_y)
-
-	# Translates the board's index to scene coordinates
-	def boardToScene(self, x, y):
-		scene_x = x * self.GRID_SPACING
-		scene_y = y * self.GRID_SPACING
-
-		return (scene_x, scene_y)
-
-	# Checks if any player has satisfied the win condition
-	def isGameOver(self):
-		for i in self.remainingPieces:
-			if i <= 2:
-				return True
-
-		return False
-
-	# TODO: finish implementing
-	def getPossibleMoves(self, board_x, board_y):
+	# Takes in a piece ID and returns all the board locations that piece can move to
+	def _getPossibleMoves(self, pieceID):
 		# Stores all the possible moves of the piece
 		# 0 means a piece can't move to that index
 		# 1 means a piece can move to that index
 		possibleMoves = []
 
-		for adjacentSpot in self.adjacentPieces[(board_x, board_y)]:
-			spot_x, spot_y = self.boardToScene(adjacentSpot[0], adjacentSpot[1])
-			if self.isValidSpot(spot_x, spot_y):
+		x, y = self._pieceIDtoCoord(pieceID)
+		# print("Finding the possible moves for piece " + str(pieceID) + " at (" + str(x) + ", " + str(y) + ")")
+
+		for adjacentSpot in self.adjacentPieces[(x, y)]:
+			# print("Checking the adjacent spot at (" + str(x) + ", " + str(y) + ")")
+
+			if self._isValidSpot(adjacentSpot[0], adjacentSpot[1]):
 				possibleMoves.append(adjacentSpot)
 
 		return possibleMoves
 
+	def _getActivePieces(self):
+		activePieces = []
+
+		# Get the indices of the player's pieces
+		# TODO: check if there is a better way to do this
+		board_copy = np.copy(self.boardState)
+		non_null = np.logical_and(board_copy != None, board_copy != -1)
+		board_copy[non_null] = board_copy[non_null] & (2**self.ID_SHIFT - 1)
+		indices = np.where(board_copy == self.current_turn)
+
+		# Goes through each of the player's pieces
+		for i in range(len(indices[0])):
+			x = indices[1][i]
+			y = indices[0][i]
+			id = self.boardState[y][x]
+			if self._getPossibleMoves(id):
+				activePieces.append(id)
+
+		return activePieces
+
+
 	# Searches the board and returns if a new jare was made or not
-	def madeNewJare(self):
+	def _madeNewJare(self):
 		piecesInJare = []
 		neighboringAlly = None
 		totalJare = 0
 
-
 		# Get the indices of the player's pieces
-		indices = np.where(self.boardState == self.current_turn)
+		# TODO: check if there is a better way to do this
+		board_copy = np.copy(self.boardState)
+		non_null = np.logical_and(board_copy != None, board_copy != -1)
+		board_copy[non_null] = board_copy[non_null] & (2**self.ID_SHIFT - 1)
+		indices = np.where(board_copy == self.current_turn)
 
 		# Goes through each of the player's pieces
 		for i in range(len(indices[0])):
@@ -511,22 +424,24 @@ class BoardManager(QObject):
 
 			# Checks if the piece is already in another "jare"
 			if board_coord in piecesInJare:
-				print("The game piece at " + str(board_coord) + " is already a part of a jare\n")
+				# print("The game piece at " + str(board_coord) + " is already a part of a jare\n")
 				continue
 
-			print("Investigating the game piece at " + str(board_coord))
+			# print("Investigating the game piece at " + str(board_coord))
 			# Checks if any adjacent pieces are also one of the player's pieces
 			for neighbor_coord in self.adjacentPieces[board_coord]:
 				
 				if neighbor_coord in piecesInJare:
-					print("The neighbor at " + str(neighbor_coord) + " is already in a jare\n")
+					# print("The neighbor at " + str(neighbor_coord) + " is already in a jare\n")
+					continue
 
-				elif self.boardState[neighbor_coord[1]][neighbor_coord[0]] == self.current_turn:
+				elif (self.boardState[neighbor_coord[1]][neighbor_coord[0]] != -1 and
+						(self.boardState[neighbor_coord[1]][neighbor_coord[0]] & (2**self.ID_SHIFT - 1) == self.current_turn)):
 					if neighboringAlly == None:
 						neighboringAlly = neighbor_coord
 					else:
-						print("Found a jare made of the pieces at " + str(board_coord) +
-								 ", " + str(neighbor_coord) + ", " + str(neighboringAlly) + "\n")
+						# print("Found a jare made of the pieces at " + str(board_coord) +
+								#  ", " + str(neighbor_coord) + ", " + str(neighboringAlly) + "\n")
 						totalJare += 1
 
 						# Record all the pieces that make up this jare
@@ -537,7 +452,7 @@ class BoardManager(QObject):
 						# Reset the neighboring ally
 						neighboringAlly = None
 
-						print()
+						# print()
 						break
 					
 			# Reset the neighboring ally
@@ -545,9 +460,17 @@ class BoardManager(QObject):
 				
 		if self.currentJare[self.current_turn] < totalJare:
 			self.currentJare[self.current_turn] = totalJare
-			# print(self.boardState)
 			return True
 
 		else:
 			self.currentJare[self.current_turn] = totalJare
 			return False
+
+
+	# Checks if any player has satisfied the win condition
+	def _isGameOver(self):
+		for i in self.total_pieces:
+			if i <= self.MIN_PIECES:
+				return True
+
+		return False

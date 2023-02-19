@@ -1,16 +1,16 @@
 import typing
-from PyQt5.QtWidgets import QGraphicsItem, QGraphicsEllipseItem
+from PyQt5.QtWidgets import QGraphicsItem, QGraphicsEllipseItem, QGraphicsObject
 from PyQt5.QtCore import QRectF, QPointF, pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QPen, QColor, QBrush
 from backend import board_manager
 
-class GamePiece(QGraphicsItem):
+class GamePiece(QGraphicsObject):
 	# *************** SIGNALS
-	pieceMoved = pyqtSignal(object, float, float)
+	pieceMoved = pyqtSignal(int, float, float)
 
-	def __init__(self, board, x, y, radius, color) -> None:
+	def __init__(self, ID, x, y, radius, color) -> None:
 		super().__init__()
-		self.board = board
+		self.ID = ID
 		self.x = x
 		self.y = y
 		self.radius = radius
@@ -62,28 +62,20 @@ class GamePiece(QGraphicsItem):
 
 		return super().itemChange(change, value)
 
-	# Places the game piece in the nearest corner/intersection on the game board
-	# Otherwise, it will move the game piece back to its original position
+	# Notifies the main window that the piece has been moved
 	def mouseReleaseEvent(self, event: 'QGraphicsSceneMouseEvent') -> None:
 
-		# self.pieceMoved.emit(self)
-		newPos = self.board.movePiece(self.x, self.y,
-								 self.item_pos.x(), self.item_pos.y())
-
-		if newPos:
-			self.x = newPos[0]
-			self.y = newPos[1]
-
-		self.setPos(self.x, self.y)
+		self.pieceMoved.emit(self.ID, self.item_pos.x(), self.item_pos.y())
 
 		return super().mouseReleaseEvent(event)
 
-	# @pyqtSlot
-	# def moveEvaluated(self, x, y):
-	# 	if x != None and y != None:
-	# 		self.x = x
-	# 		self.y = y
 
-	# 	self.setPos(self.x, self.y)
+	# Updates the pieces position
+	def movePiece(self, x = None, y = None):
+		if x != None and y != None:
+			self.x = x
+			self.y = y
+
+		self.setPos(self.x, self.y)
 
 	
