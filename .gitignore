@@ -130,3 +130,6 @@ dmypy.json
 
 # Generated PyQt ui files
 ui_*.py
+
+# VSCode settings
+.vscode
