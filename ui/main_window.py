@@ -76,15 +76,36 @@ class MainWindow(QtWidgets.QMainWindow):
         del self.boardManager
         event.accept()
 
-    def update_on_screen_text(self, next_state, next_player, msg):
+    def update_on_screen_text(self, next_state, next_player, msg, waiting):
+        # Update the announcement label
         if next_player == self.boardManager.player_num:
             self.announcementLbl.setText("Your Turn!")
         else:
             self.announcementLbl.setText("Opponent's Turn.")
 
+        self.announcementLbl.setText("Player " + str(next_player + 1) + "'s Turn")
+
         # self.p1PiecesLbl.setText(str(num_p1_pieces))
         # self.p2PiecesLbl.setText(str(num_p2_pieces))
 
+        # Game state related UI updates
+        if next_state == "STOPPED" and waiting:
+            self.announcementLbl.setText("Waiting for a game...")
+            self.printLbl.setText("")
+            self.gameBtn.setText("Quit")
+
+        elif next_state == "PLACEMENT":
+            self.gameStateLbl.setText("Placement Stage")
+            self.printLbl.setText("Click on a node to place a piece")
+            self.gameBtn.setText("Quit")
+
+        elif next_state == "REMOVAL" or next_state == "FIRST_REMOVAL":
+            self.gameStateLbl.setText("Removal Stage")
+            self.printLbl.setText("Click on a piece to remove")
+
+        elif next_state == "MOVEMENT":
+            self.gameStateLbl.setText("Movement Stage")
+            self.printLbl.setText("Drag one of your pieces to an adjacent spot")
 
     # ************************* INIT METHODS FOR THE GAME BOARD ***************
     # Draws the initial state of the board
@@ -172,7 +193,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 if x < 0 or y < 0:
                     self.announcementLbl.setText("Please click on a valid node")
                     return True
-                
+
                 # Send the piece placement move to the board
                 self.boardManager.placePiece(x, y)
 
@@ -217,9 +238,7 @@ class MainWindow(QtWidgets.QMainWindow):
     # Opens the settings window
     @pyqtSlot()
     def settingsAction_Triggered(self):
-        print("button triggered")
-        if (self.boardManager.gameState != GameStage.STOPPED):
-            print("Message appeared")
+        if (self.boardManager.running or self.boardManager.waiting):
             QMessageBox.critical(self, "Ongoing Game",
                                  "The current game must be finished before editing the settings.")
 
@@ -232,8 +251,11 @@ class MainWindow(QtWidgets.QMainWindow):
     # **************************** GAME EVENTS *************************************
     # Starts up a game
 
-    @pyqtSlot(bool, str, bool, dict)
-    def startGame_Response(self, success, error, waiting, adjacentPieces):
+    @pyqtSlot(bool, str, bool, str, int, dict)
+    def startGame_Response(self, success, error, waiting, next_state, next_player, adjacentPieces):
+        # Update on screen text
+        self.update_on_screen_text(next_state, next_player, "", waiting)
+
         if not success:
             print("Error: " + error)
             return
@@ -255,22 +277,15 @@ class MainWindow(QtWidgets.QMainWindow):
             self.loading_widget = scene.addWidget(loading_gif)
             self.graphicsView.setScene(scene)
 
-            # Update on-screen text
-            self.announcementLbl.setText("Waiting for a game...")
-            self.printLbl.setText("")
-            self.gameBtn.setText("Quit")
-
-        # If the game has started
+        # Initialize the graphics if the game has started
         else:
-            self.announcementLbl.setText("Started a new game!")
-            self.printLbl.setText("Click on a node to place a piece")
-            self.gameBtn.setText("Quit")
             self.initGraphics(adjacentPieces)
 
     # Updates the board visuals after the board manager evaluates the piece placement request
     @pyqtSlot(bool, str, int, int, int, str, int)
     def placePiece_Evaluated(self, success, error, ID, x, y, nextStage, nextPlayer):
-
+        # Update on screen text
+        self.update_on_screen_text(nextStage, nextPlayer, "", False)
 
         # Check if the piece placement has been approved
         if not success:
@@ -293,24 +308,11 @@ class MainWindow(QtWidgets.QMainWindow):
         # Connect the signals from the game piece
         newPiece.pieceMoved.connect(self.gamePiece_Moved)
 
-        # ***PREPARES FOR THE NEXT MOVE
-        # Update any UI elements
-        self.gameStateLbl.setText("Player " + str(nextPlayer + 1) + "'s Turn")
-
-        if (nextStage == "PLACEMENT"):
-            self.printLbl.setText("Click on a node to place piece")
-        elif (nextStage == "REMOVAL" or nextStage == "FIRST_REMOVAL"):
-            self.printLbl.setText("Click on a piece to remove")
-
     # Updates the board visuals after the board manager evaluates the piece removal request
-
     @pyqtSlot(bool, str, int, str, int, list)
     def removePiece_Evaluated(self, success, error, ID, nextStage, nextPlayer, activePieces):
-
-        if nextPlayer == self.boardManager.player_num:
-            self.announcementLbl.setText("Your Turn!")
-        else:
-            self.announcementLbl.setText("Opponent's Turn.")
+        # Update on screen text
+        self.update_on_screen_text(nextStage, nextPlayer, "", False)
 
         if not success:
             print("The piece couldn't be removed")
@@ -322,30 +324,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.scene.removeItem(piece)
         del piece
 
-        print("The piece was successfully removed from the scene")
-
         # ***PREPARES FOR THE NEXT MOVE
         # Activates any pieces that can be moved in the next stage
         self.activatePlayer(activePieces)
 
-        # Update any UI elements
-        self.gameStateLbl.setText("Player " + str(nextPlayer + 1) + "'s Turn")
-
-        if (nextStage == "movement"):
-            self.printLbl.setText("Drag one of your pieces to an adjacent spot")
-
-        elif (nextStage == "removal"):
-            self.printLbl.setText("Click on a piece to remove")
-
     # Updates the board visuals after the board manager evaluates the piece movement request
-
     @pyqtSlot(bool, str, int, int, int, str, int, list)
     def movePiece_Evaluated(self, success, error, ID, x, y, nextStage, nextPlayer, activePieces):
-
-        if nextPlayer == self.boardManager.player_num:
-            self.announcementLbl.setText("Your Turn!")
-        else:
-            self.announcementLbl.setText("Opponent's Turn.")
+        # Update on screen text
+        self.update_on_screen_text(nextStage, nextPlayer, "", False)
 
         # Get the piece corresponding to the evaluated piece movement
         piece = self.gamePieces[ID]
@@ -361,18 +348,8 @@ class MainWindow(QtWidgets.QMainWindow):
         x, y = self.boardToScene(x, y)
         piece.movePiece(x, y)
 
-        # ***PREPARES FOR THE NEXT MOVE
         # Activates any pieces that can be moved in the next stage
         self.activatePlayer(activePieces)
-
-        # Update any UI elements
-        self.gameStateLbl.setText("Player " + str(nextPlayer + 1) + "'s Turn")
-
-        if (nextStage == "movement"):
-            self.printLbl.setText("Drag one of your pieces to an adjacent spot")
-
-        elif (nextStage == "removal"):
-            self.printLbl.setText("Click on a piece to remove")
 
     @pyqtSlot(bool, str, bool, bool)
     def end_Evaluated(self, success, msg, won, waiting):

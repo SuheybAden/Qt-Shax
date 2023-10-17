@@ -26,7 +26,7 @@ class BoardManager(QObject):
     gameStarted = pyqtSignal(QVariant)
     gameEnded = pyqtSignal()
 
-    startGameEvaluated = pyqtSignal(bool, str, bool, dict)
+    startGameEvaluated = pyqtSignal(bool, str, bool, str, int, dict)
     placePieceEvaluated = pyqtSignal(bool, str, int, int, int, str, int)
     removePieceEvaluated = pyqtSignal(bool, str, int, str, int, list)
     movePieceEvaluated = pyqtSignal(bool, str, int, int, int, str, int, list)
@@ -76,7 +76,6 @@ class BoardManager(QObject):
         # Array containing the total number of "jare" each player has made
         self.currentJare = np.zeros(self.TOTAL_PLAYERS, np.int8)
 
-
         self.player_tokens = [0, 0]
 
         # ********************* WEBSOCKET VARIABLES *************************
@@ -119,6 +118,7 @@ class BoardManager(QObject):
     # Receives a JSON response from the WebSocket server
     # Routes it to the appropriate response function
     def onTextMessageReceived(self, message):
+        # DEBUG PRINT
         data = json.loads(message)
         print(f"\nReceived message: {json.dumps(data, indent=4)}")
 
@@ -135,54 +135,59 @@ class BoardManager(QObject):
         elif action == "move_piece":
             self.movePiece_Response(data)
 
-    # Sets the board to all its initial values and starts the game
+    # Sends a request for a game to be started to the shax API
     @pyqtSlot()
     def startGame(self):
         # Allow players to join different types of games
         message = {"action": "join_game",
-                   "game_type": 0}
+                   "game_type": 1}
         self.sendMessage(message)
 
+    # Handles the response data from the shax API when a startGame action is sent
     def startGame_Response(self, data):
-        try:
-            success: bool = data["success"]
+        # Check that the response contains all the required keys
+        required_keys = ("success", "waiting")
+        if not all(key in data for key in required_keys):
+            print("Received an unexpected response from the websocket server.")
+            return
 
-            if success:
-                waiting: bool = data["waiting"]
+        # Load all the game parameters
+        success: bool = data["success"]
+        error: str = data["error"]
+        self.waiting: bool = data["waiting"]
+        self.player_num = data["player_num"]
+        print(data["player1_key"])
+        print(data["player2_key"])
+        self.player_tokens[0] = data["player1_key"]
+        self.player_tokens[1] = data["player2_key"]
+        gameState = data["next_state"]
+        self.current_turn = data["next_player"]
 
-                if waiting:
-                    self.waiting = True
+        # Update the game state
+        self.gameState = GameStage[gameState]
 
-                else:
-                    self.player_num = data["player_num"]
-                    self.player_tokens[self.player_num] = data["player_ID"]
-                    self.running = True
-                    self.waiting = False
-                    self.gameState = GameStage.PLACEMENT
+        # Check if the game started successfully
+        if success:
+            self.running = True
 
-                adjacentPieces_raw: dict | None = data["adjacent_pieces"]
-                adjacentPieces = {tuple(int(val) for val in key.strip('()').split(',')): [[int(val1), int(val2)] for val1, val2 in value]
-                                  for key, value in adjacentPieces_raw.items()}
+        # Convert the adjacent pieces array back to a python dict
+        adjacentPieces_raw: dict | None = data["adjacent_pieces"]
+        adjacentPieces = {tuple(int(val) for val in key.strip('()').split(',')): [[int(val1), int(val2)] for val1, val2 in value]
+                          for key, value in adjacentPieces_raw.items()}
 
-                self.startGameEvaluated.emit(success, "", waiting, adjacentPieces)
-                return
-            else:
-                error: str = data["error"]
-                self.startGameEvaluated.emit(success, error, False, {})
-                return
-
-        except Exception:
-            print("Received an unexpected response")
-            self.startGameEvaluated.emit(False, "", False, {})
+        # Notifies the main window about the outcome of the start game request
+        self.startGameEvaluated.emit(success, error, self.waiting, gameState, self.current_turn, adjacentPieces)
+        return
 
     # Places a new game piece on the board at the scene coordinates (x, y)
     @pyqtSlot(float, float)
     def placePiece(self, x, y):
         print("Attempting to place a piece...")
+        print(self.player_tokens)
         message = {"action": "place_piece",
                    "x": x,
                    "y": y,
-                   "player_ID": self.player_tokens[self.current_turn]}
+                   "player_key": self.player_tokens[self.current_turn]}
         self.sendMessage(message)
 
     def placePiece_Response(self, data):
@@ -216,7 +221,7 @@ class BoardManager(QObject):
         print("Attempting to remove a piece...")
         message = {"action": "remove_piece",
                    "piece_ID": pieceID,
-                   "player_ID": self.player_tokens[self.current_turn]}
+                   "player_key": self.player_tokens[self.current_turn]}
         self.sendMessage(message)
 
     def removePiece_Response(self, data):
@@ -245,7 +250,8 @@ class BoardManager(QObject):
                 active_pieces: list = data["active_pieces"]
 
                 # Notify the UI about the results
-                self.removePieceEvaluated.emit(success, "", ID, next_state, self.current_turn, active_pieces)
+                self.removePieceEvaluated.emit(
+                    success, "", ID, next_state, self.current_turn, active_pieces)
 
         except Exception as e:
             print("Received an unexpected response: ", e)
@@ -261,7 +267,7 @@ class BoardManager(QObject):
                    "piece_ID": ID,
                    "new_x": new_x,
                    "new_y": new_y,
-                   "player_ID": self.player_tokens[self.current_turn]}
+                   "player_key": self.player_tokens[self.current_turn]}
         self.sendMessage(message)
 
     def movePiece_Response(self, data):
@@ -276,7 +282,8 @@ class BoardManager(QObject):
 
             if not success:
                 error: str = data["error"]
-                self.movePieceEvaluated.emit(success, error, 0, 0, 0, next_state, self.current_turn, [])
+                self.movePieceEvaluated.emit(success, error, 0, 0, 0,
+                                             next_state, self.current_turn, [])
 
             else:
                 # Loads the rest of the response data
@@ -286,7 +293,8 @@ class BoardManager(QObject):
                 active_pieces: int = data["active_pieces"]
 
                 # Notifies the UI
-                self.movePieceEvaluated.emit(success, "", ID, x, y, next_state, self.current_turn, active_pieces)
+                self.movePieceEvaluated.emit(
+                    success, "", ID, x, y, next_state, self.current_turn, active_pieces)
         except Exception as e:
             print("Received an unexpected response: ", e)
 

@@ -59,6 +59,9 @@
           <property name="horizontalScrollBarPolicy">
            <enum>Qt::ScrollBarAlwaysOff</enum>
           </property>
+          <property name="renderHints">
+           <set>QPainter::Antialiasing|QPainter::TextAntialiasing</set>
+          </property>
           <property name="dragMode">
            <enum>QGraphicsView::NoDrag</enum>
           </property>
